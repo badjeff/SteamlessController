@@ -848,6 +848,52 @@ int RunChecks() {
                          InputInjection::kCalibratedWheelLines), label);
         }
     }
+    // Circular-scroll segments. The page has its own clamp in clampSegments,
+    // so the two have to agree on the range.
+    printf("\nCircular-scroll segment clamping\n");
+    {
+        // Zero is what the registry yields for profiles written before this
+        // setting existed, so it has to mean "unset", not clamp up to 8.
+        Check(ScrollSegmentsFromDword(0) == kScrollSegmentsDefault,
+              "an absent value is the default, not the minimum");
+        Check(ScrollSegmentsFromDword(kScrollSegmentsMin) == kScrollSegmentsMin,
+              "the minimum is kept");
+        Check(ScrollSegmentsFromDword(kScrollSegmentsMax) == kScrollSegmentsMax,
+              "the maximum is kept");
+        Check(ScrollSegmentsFromDword(1) == kScrollSegmentsMin,
+              "below the minimum clamps up");
+        Check(ScrollSegmentsFromDword(99999) == kScrollSegmentsMax,
+              "above the maximum clamps down");
+        Check(kScrollSegmentsMin <= kScrollSegmentsDefault
+                  && kScrollSegmentsDefault <= kScrollSegmentsMax,
+              "the default sits inside the range");
+    }
+
+    // Every layer — persistence, the wire, the page dropdown — keys off these
+    // helpers, so a lost id would silently read back as Natural.
+    printf("\nScroll direction ids and the circular switch\n");
+    {
+        const ScrollDirection all[] = {
+            ScrollDirection::Natural, ScrollDirection::Reversed,
+            ScrollDirection::Clockwise, ScrollDirection::CounterClockwise,
+        };
+        for (ScrollDirection d : all) {
+            char label[96];
+            snprintf(label, sizeof(label), "direction %s survives the id round-trip",
+                     ScrollDirectionId(d));
+            Check(ScrollDirectionFromId(ScrollDirectionId(d)) == d, label);
+        }
+        Check(IsCircularScroll(ScrollDirection::Clockwise),
+              "clockwise is circular");
+        Check(IsCircularScroll(ScrollDirection::CounterClockwise),
+              "counter-clockwise is circular");
+        Check(!IsCircularScroll(ScrollDirection::Natural),
+              "natural stays on the swipe path");
+        Check(!IsCircularScroll(ScrollDirection::Reversed),
+              "reversed stays on the swipe path");
+        Check(ScrollDirectionFromDword(999) == ScrollDirection::Natural,
+              "a nonsense DWORD reads as natural");
+    }
     printf("\n%s (%d failure(s))\n", g_failures ? "FAILED" : "All checks passed", g_failures);
     return g_failures ? 1 : 0;
 }
