@@ -34,8 +34,17 @@ void TrackpadInput::Reset() {
     m_remY       = 0.0f;
     m_scrollRemX = 0.0f;
     m_scrollRemY = 0.0f;
+    m_scrollCircularRem = 0.0f;
+    m_haveScrollAngle   = false;
     m_haveRef    = false;
     m_travelSent = 0;
+
+    StopGlide();
+    m_velX           = 0.0f;
+    m_velY           = 0.0f;
+    m_haveVelocity   = false;
+    m_contactPressed = false;
+    m_haveUpdateTime = false;
 
     m_dirs           = DirNone;
     m_sector         = -1;
@@ -70,17 +79,20 @@ void TrackpadInput::NoteMovementSent(long px, bool haveCursor,
     }
 }
 
-void TrackpadInput::UpdatePointer(int dx, int dy) {
-    // Carry sub-pixel remainders between frames — per-frame deltas scaled by
-    // sensitivity are often below one pixel, and truncating them each frame
-    // would discard slow movement entirely.
-    //
-    // The pad's speed setting scales it, the same one scroll uses (#129): 100
-    // is the built-in feel, so a pad that never touched the setting moves as it
-    // always did.
-    const float sensitivity = SENSITIVITY * (static_cast<float>(m_scrollSpeed) / 100.0f);
-    const float fx = static_cast<float>(dx) * sensitivity + m_remX;
-    const float fy = static_cast<float>(dy) * sensitivity + m_remY;
+// The pad's speed setting scales pointer movement, the same one scroll uses
+// (#129): 100 is the built-in feel, so a pad that never touched the setting
+// moves as it always did.
+float TrackpadInput::PointerSensitivity() const {
+    return SENSITIVITY * (static_cast<float>(m_scrollSpeed) / 100.0f);
+}
+
+// Pixel-space injection, shared by finger movement and the glide. Carry
+// sub-pixel remainders between frames — per-frame deltas scaled by sensitivity
+// are often below one pixel, and truncating them each frame would discard slow
+// movement entirely.
+void TrackpadInput::EmitPointer(float dxPx, float dyPx) {
+    const float fx = dxPx + m_remX;
+    const float fy = dyPx + m_remY;
     const LONG  ix = static_cast<LONG>(fx);
     const LONG  iy = static_cast<LONG>(fy);
     m_remX = fx - static_cast<float>(ix);
@@ -100,6 +112,109 @@ void TrackpadInput::UpdatePointer(int dx, int dy) {
         NoteMovementSent(std::labs(ix) + std::labs(iy),
                          haveBefore, before.x, before.y);
     }
+}
+
+void TrackpadInput::UpdatePointer(int dx, int dy) {
+    const float sensitivity = PointerSensitivity();
+    EmitPointer(static_cast<float>(dx) * sensitivity,
+                static_cast<float>(dy) * sensitivity);
+}
+
+// Folds this frame's finger movement into the velocity that a lift will hand
+// to the glide. Called on every touched frame, including a still one, so a
+// thumb that stops before lifting has already decayed to nothing by the time
+// the contact ends.
+void TrackpadInput::UpdateVelocity(float dt, float dxPx, float dyPx) {
+    if (dt <= 0.0f) return;
+
+    // A frame that moved further than a finger can is a sensor jump, or a
+    // lift and re-placement whose touch bit we never saw go false — not a
+    // flick. Letting it into the filter would launch the cursor across the
+    // screen on the next lift.
+    if (std::hypot(dxPx, dyPx) > JUMP_REPORT_UNITS * PointerSensitivity()) {
+        m_velX = 0.0f;
+        m_velY = 0.0f;
+        m_haveVelocity = false;
+        return;
+    }
+
+    const float instX = dxPx / dt;
+    const float instY = dyPx / dt;
+    if (!m_haveVelocity) {
+        // Seed at the first moving frame's own velocity: a flick is often only
+        // two or three reports long, and easing up from zero would discard the
+        // speed. A still frame before any movement leaves it unseeded.
+        if (dxPx == 0.0f && dyPx == 0.0f) return;
+        m_velX = instX;
+        m_velY = instY;
+        m_haveVelocity = true;
+    } else {
+        // Time-based rather than per-frame, so the same flick measures the same
+        // at 60 Hz and at 250 Hz.
+        const float alpha = 1.0f - std::exp(-dt / GLIDE_VELOCITY_TAU_S);
+        m_velX += (instX - m_velX) * alpha;
+        m_velY += (instY - m_velY) * alpha;
+    }
+
+    // A ceiling, for the report that is merely fast rather than impossible.
+    const float speed = std::hypot(m_velX, m_velY);
+    if (speed > GLIDE_MAX_SPEED_PX) {
+        const float scale = GLIDE_MAX_SPEED_PX / speed;
+        m_velX *= scale;
+        m_velY *= scale;
+    }
+}
+
+void TrackpadInput::StartGlide() {
+    if (!m_haveVelocity) return;
+
+    const float speed = std::hypot(m_velX, m_velY);
+    // Below the configured start speed the thumb was placing the cursor, not
+    // throwing it. A glide from that would read as the cursor drifting after
+    // every slow adjustment. A start speed of zero means coast on every
+    // release that moved.
+    if (speed < m_glideSpeedPx) {
+        StopGlide();
+        return;
+    }
+
+    m_glideVX       = m_velX;
+    m_glideVY       = m_velY;
+    m_glideElapsedS = 0.0f;
+    m_glideActive   = true;
+}
+
+void TrackpadInput::UpdateGlide(float dt) {
+    if (dt <= 0.0f) return;
+
+    m_glideElapsedS += dt;
+    if (m_glideElapsedS > GLIDE_MAX_DURATION_S) {
+        StopGlide();
+        return;
+    }
+
+    // The profile stores a percentage kept per GLIDE_DECAY_TICK_S. Raising it
+    // to dt/tick turns that into the fraction for this report's actual
+    // interval, so the coast does not depend on whether the pad is reporting
+    // at 60 Hz or 250 Hz.
+    const float decay = std::pow(m_glideDecay, dt / GLIDE_DECAY_TICK_S);
+    m_glideVX *= decay;
+    m_glideVY *= decay;
+
+    const float speed = std::hypot(m_glideVX, m_glideVY);
+    if (speed < GLIDE_STOP_SPEED_PX) {
+        StopGlide();
+        return;
+    }
+
+    EmitPointer(m_glideVX * dt, m_glideVY * dt);
+}
+
+void TrackpadInput::StopGlide() {
+    m_glideActive   = false;
+    m_glideVX       = 0.0f;
+    m_glideVY       = 0.0f;
+    m_glideElapsedS = 0.0f;
 }
 
 // The wheel units one frame of movement is worth.
@@ -158,6 +273,66 @@ void TrackpadInput::UpdateScroll(int dx, int dy) {
         input.mi.mouseData = static_cast<DWORD>(ix);
         InputInjection::Send(input, "trackpad-hscroll");
     }
+}
+
+// Circular scroll, used when the direction is Clockwise or CounterClockwise.
+//
+// The pad is the wheel: the thumb's angle around the centre is measured each
+// frame, and every angular segment it crosses emits one wheel tick.
+//
+// The angle is measured clockwise from the right edge. The pad reports Y
+// upward while the screen reports it downward, so negating Y is what makes
+// "clockwise" the direction the thumb visibly travels. Clockwise scrolls the
+// wheel down and CounterClockwise up.
+void TrackpadInput::UpdateCircularScroll(int16_t x, int16_t y, bool newContact) {
+    constexpr double kPi    = 3.14159265358979323846;
+    constexpr double kTwoPi = 2.0 * kPi;
+
+    if (newContact) {
+        // The first frame only records where the gesture began. Emitting a
+        // tick from it would make merely touching the pad scroll.
+        m_haveScrollAngle   = false;
+        m_scrollCircularRem = 0.0f;
+    }
+
+    const double angle = std::atan2(-static_cast<double>(y),
+                                     static_cast<double>(x));
+    if (!m_haveScrollAngle) {
+        m_scrollAnglePrev = angle;
+        m_haveScrollAngle = true;
+        return;
+    }
+
+    // Shortest signed step from the previous frame. atan2 wraps by a full turn
+    // at the ±pi seam; folding the difference keeps that seam from reading as
+    // almost a whole revolution.
+    double delta = angle - m_scrollAnglePrev;
+    if (delta >  kPi) delta -= kTwoPi;
+    if (delta < -kPi) delta += kTwoPi;
+    m_scrollAnglePrev = angle;
+
+    // One tick per segment crossed. The speed percentage scales the tick rate
+    // the same way it scaled the swipe path, and the wheel correction keeps
+    // the distance the same whatever Windows' lines-per-notch setting is.
+    const double segmentAngle = kTwoPi / static_cast<double>(m_scrollSegments);
+    double ticks = (delta / segmentAngle)
+                 * (static_cast<double>(m_scrollSpeed) / 100.0);
+    ticks *= static_cast<double>(
+        InputInjection::WheelCorrection(InputInjection::WheelLinesPerNotch()));
+
+    // Clockwise is wheel-down (negative); CounterClockwise is wheel-up.
+    if (m_scrollDir == ScrollDirection::Clockwise) ticks = -ticks;
+
+    m_scrollCircularRem += static_cast<float>(ticks);
+    const LONG whole = static_cast<LONG>(m_scrollCircularRem);
+    if (whole == 0) return;
+    m_scrollCircularRem -= static_cast<float>(whole);
+
+    INPUT input{};
+    input.type         = INPUT_MOUSE;
+    input.mi.dwFlags   = MOUSEEVENTF_WHEEL;
+    input.mi.mouseData = static_cast<DWORD>(whole * WHEEL_DELTA);
+    InputInjection::Send(input, "trackpad-scroll");
 }
 
 // ---------------------------------------------------------------------------
@@ -343,21 +518,85 @@ void TrackpadInput::Update(const uint8_t* buf, size_t n, bool pressed) {
         return;
     }
 
-    if (touching && m_touching) {
-        const int dxRaw = static_cast<int>(x - m_prevX);
-        const int dyRaw = static_cast<int>(y - m_prevY);
-        NoteJump(buf, n, dxRaw, dyRaw);
-        if (dxRaw != 0 || dyRaw != 0) {
-            if (m_mode == TrackpadMode::MousePointer) {
+    // The controller streams reports whether or not a pad is touched, so the
+    // same frames that carry finger movement also drive the glide. Clamping dt
+    // keeps a stalled read from teleporting the cursor when reports resume.
+    const auto now = std::chrono::steady_clock::now();
+    float dt = 0.0f;
+    if (m_haveUpdateTime) {
+        dt = std::chrono::duration<float>(now - m_lastUpdateAt).count();
+        if (dt < 0.0f) dt = 0.0f;
+        if (dt > GLIDE_MAX_DT_S) dt = GLIDE_MAX_DT_S;
+    }
+    m_lastUpdateAt   = now;
+    m_haveUpdateTime = true;
+
+    // A profile change can switch glide off while one is running. Stop it here,
+    // on the thread that owns the motion, rather than from the UI thread.
+    if (!m_glideEnabled) StopGlide();
+
+    if (touching) {
+        if (!m_touching) {
+            // A new contact takes the cursor back immediately. Anything still
+            // coasting belongs to the previous touch and must not fight the
+            // thumb.
+            StopGlide();
+            m_velX           = 0.0f;
+            m_velY           = 0.0f;
+            m_haveVelocity   = false;
+            m_contactPressed = false;
+        }
+
+        int dxRaw = 0, dyRaw = 0;
+        if (m_touching) {
+            dxRaw = static_cast<int>(x - m_prevX);
+            dyRaw = static_cast<int>(y - m_prevY);
+            NoteJump(buf, n, dxRaw, dyRaw);
+        }
+
+        if (m_mode == TrackpadMode::MousePointer) {
+            if (dxRaw != 0 || dyRaw != 0) {
                 // Pad Y grows upward, screen Y grows downward.
                 UpdatePointer(dxRaw, -dyRaw);
-            } else {
-                // Raw deltas — UpdateScroll owns the direction convention.
-                UpdateScroll(dxRaw, dyRaw);
             }
+        } else if (IsCircularScroll(m_scrollDir)) {
+            // Circular scrolling measures the absolute angle rather than the
+            // frame's delta, so it runs even on a still frame: the first one
+            // records where the gesture began.
+            UpdateCircularScroll(x, y, !m_touching);
+        } else if (dxRaw != 0 || dyRaw != 0) {
+            // Raw deltas — UpdateScroll owns the direction convention.
+            UpdateScroll(dxRaw, dyRaw);
         }
+
+        if (m_mode == TrackpadMode::MousePointer) {
+            if (pressed) m_contactPressed = true;
+            // Fed even on a still frame: that is what lets a thumb that stops
+            // before lifting decline to glide.
+            const float sensitivity = PointerSensitivity();
+            UpdateVelocity(dt,
+                           static_cast<float>(dxRaw) * sensitivity,
+                           static_cast<float>(-dyRaw) * sensitivity);
+        }
+
+        m_prevX = x;
+        m_prevY = y;
+    } else {
+        if (m_touching) {
+            // The lift. A click is a stop, not a flick: a glide out of a
+            // button press would move the cursor the user was aiming with.
+            if (m_mode == TrackpadMode::MousePointer && m_glideEnabled
+                    && !m_contactPressed)
+                StartGlide();
+            m_velX           = 0.0f;
+            m_velY           = 0.0f;
+            m_haveVelocity   = false;
+            m_contactPressed = false;
+        }
+
+        if (m_mode == TrackpadMode::MousePointer && m_glideActive)
+            UpdateGlide(dt);
     }
 
-    if (touching) { m_prevX = x; m_prevY = y; }
     m_touching = touching;
 }

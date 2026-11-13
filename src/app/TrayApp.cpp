@@ -2011,6 +2011,10 @@ void TrayApp::LoadSettings() {
             pad.click     = binding(L"Click", BackButtonAction::None);
             pad.scrollDir = ScrollDirectionFromDword(readDw(name(L"ScrollDir").c_str(), 0));
             pad.scrollSpeed = ScrollSpeedFromDword(readDw(name(L"ScrollSpeed").c_str(), 0));
+            pad.scrollSegments = ScrollSegmentsFromDword(readDw(name(L"ScrollSegments").c_str(), 0));
+            pad.glide      = readDw(name(L"Glide").c_str(), 0) != 0;
+            pad.glideSpeed = GlideSpeedFromDword(readDw(name(L"GlideSpeed").c_str(), kGlideSpeedUnset));
+            pad.glideDecay = GlideDecayFromDword(readDw(name(L"GlideDecay").c_str(), 0));
             pad.touch     = binding(L"Touch", BackButtonAction::None);
             pad.up        = binding(L"Up",    BackButtonAction::DPadUp);
             pad.down      = binding(L"Down",  BackButtonAction::DPadDown);
@@ -2114,6 +2118,10 @@ void TrayApp::SaveSettings() {
         writeDw(name(L"Click").c_str(),     pad.click.Pack());
         writeDw(name(L"ScrollDir").c_str(), static_cast<DWORD>(pad.scrollDir));
         writeDw(name(L"ScrollSpeed").c_str(), pad.scrollSpeed);
+        writeDw(name(L"ScrollSegments").c_str(), pad.scrollSegments);
+        writeDw(name(L"Glide").c_str(),       pad.glide ? 1 : 0);
+        writeDw(name(L"GlideSpeed").c_str(),  pad.glideSpeed);
+        writeDw(name(L"GlideDecay").c_str(),  pad.glideDecay);
         writeDw(name(L"Touch").c_str(),     pad.touch.Pack());
         writeDw(name(L"Up").c_str(),        pad.up.Pack());
         writeDw(name(L"Down").c_str(),      pad.down.Pack());

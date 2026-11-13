@@ -320,6 +320,16 @@ R"HTML(
         <select id="dir-LPAD" class="mode-select"></select>
       </div>
     </div>
+    <div class="row mode-row" id="segments-row-LPAD">
+      <div class="row-top">
+        <span class="pos-label">Angular Segments</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="segments-LPAD" class="speed-slider">
+          <span class="speed-val" id="segments-val-LPAD">24</span>
+        </div>
+      </div>
+    </div>
     <div class="row mode-row" id="speed-row-LPAD">
       <div class="row-top">
         <span class="pos-label">Speed</span>
@@ -327,6 +337,33 @@ R"HTML(
         <div class="speed-wrap">
           <input type="range" id="speed-LPAD" class="speed-slider">
           <span class="speed-val" id="speed-val-LPAD">1x</span>
+        </div>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-row-LPAD">
+      <div class="row-top">
+        <span class="pos-label">Inertial Glide</span>
+        <div class="connector"></div>
+        <select id="glide-LPAD" class="mode-select"></select>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-speed-row-LPAD">
+      <div class="row-top">
+        <span class="pos-label">Glide Start Speed</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="glide-speed-LPAD" class="speed-slider">
+          <span class="speed-val" id="glide-speed-val-LPAD">500px/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-decay-row-LPAD">
+      <div class="row-top">
+        <span class="pos-label">Glide Decay (per 16 ms)</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="glide-decay-LPAD" class="speed-slider">
+          <span class="speed-val" id="glide-decay-val-LPAD">90%</span>
         </div>
       </div>
     </div>
@@ -361,6 +398,16 @@ R"HTML(
         <select id="dir-RPAD" class="mode-select"></select>
       </div>
     </div>
+    <div class="row mode-row" id="segments-row-RPAD">
+      <div class="row-top">
+        <span class="pos-label">Angular Segments</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="segments-RPAD" class="speed-slider">
+          <span class="speed-val" id="segments-val-RPAD">24</span>
+        </div>
+      </div>
+    </div>
     <div class="row mode-row" id="speed-row-RPAD">
       <div class="row-top">
         <span class="pos-label">Speed</span>
@@ -368,6 +415,33 @@ R"HTML(
         <div class="speed-wrap">
           <input type="range" id="speed-RPAD" class="speed-slider">
           <span class="speed-val" id="speed-val-RPAD">1x</span>
+        </div>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-row-RPAD">
+      <div class="row-top">
+        <span class="pos-label">Inertial Glide</span>
+        <div class="connector"></div>
+        <select id="glide-RPAD" class="mode-select"></select>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-speed-row-RPAD">
+      <div class="row-top">
+        <span class="pos-label">Glide Start Speed</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="glide-speed-RPAD" class="speed-slider">
+          <span class="speed-val" id="glide-speed-val-RPAD">500px/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="row mode-row" id="glide-decay-row-RPAD">
+      <div class="row-top">
+        <span class="pos-label">Glide Decay (per 16 ms)</span>
+        <div class="connector"></div>
+        <div class="speed-wrap">
+          <input type="range" id="glide-decay-RPAD" class="speed-slider">
+          <span class="speed-val" id="glide-decay-val-RPAD">90%</span>
         </div>
       </div>
     </div>
@@ -595,10 +669,23 @@ var DEFAULTS = {L4:'leftMouse',L5:'none',R4:'leftMouse',R5:'none',LPAD:'none',RP
   RPADup:'Up',RPADdown:'Down',RPADleft:'Left',RPADright:'Right',RPADtouch:'none'};
 var DEFAULT_MODES = {LPAD:'scroll',RPAD:'pointer'};
 var DEFAULT_DIRS  = {LPAD:'natural',RPAD:'natural'};
+// Circular scroll: angular segments per revolution. Shown only for the
+// Clockwise/Counter-Clockwise directions. Keep in step with
+// kScrollSegmentsDefault in TrackpadConfig.h.
+var DEFAULT_SEGMENTS = {LPAD:24,RPAD:24};
 var DEFAULT_DIAGS = {LPAD:'eight',RPAD:'eight'};
 // Percent of the built-in scroll or pointer scale. Keep in step with
 // kScrollSpeedDefault in TrackpadConfig.h.
 var DEFAULT_SPEEDS = {LPAD:100,RPAD:100};
+// Opt-in, default off. Keep in step with TrackpadSettings::glide in
+// TrackpadConfig.h.
+var DEFAULT_GLIDES = {LPAD:'off',RPAD:'off'};
+// Glide tuning, shown only while glide is On. Keep in step with
+// kGlideSpeedDefault/kGlideDecayDefault in TrackpadConfig.h. The start speed is
+// px/s and 0 means "coast on every moving release"; the decay is the percentage
+// of speed kept per 16 ms reference tick.
+var DEFAULT_GLIDE_SPEEDS = {LPAD:500,RPAD:500};
+var DEFAULT_GLIDE_DECAYS = {LPAD:90,RPAD:90};
 // The stops the speed slider offers, as percentages of the calibrated feel. Stored and sent as those percentages, so the C++ side keeps taking any
 // value in kScrollSpeedMin..Max and nothing about persistence changes — these
 // are where the slider is willing to stop, not what the setting can hold.
@@ -623,12 +710,19 @@ var modes = {LPAD:'none',RPAD:'none'};
 // Scroll direction per pad. Only meaningful in scroll mode, but kept for
 // every pad so switching modes back and forth does not lose the choice.
 var dirs = {LPAD:'natural',RPAD:'natural'};
+// Circular-scroll segments per pad, kept across mode changes.
+var segments = {LPAD:24,RPAD:24};
 // Whether a directional pad's diagonals press two directions or round to one.
 // Kept for every pad for the same reason as the scroll direction.
 var diags = {LPAD:'eight',RPAD:'eight'};
 // Scroll speed per pad, kept for every pad for the same reason as the two
 // above: switching modes back and forth must not lose the choice.
 var speeds = {LPAD:100,RPAD:100};
+// Inertial glide per pad. Off is the opt-in default.
+var glides = {LPAD:'off',RPAD:'off'};
+// Glide tuning per pad, kept while glide is toggled off and on.
+var glideSpeeds = {LPAD:500,RPAD:500};
+var glideDecays = {LPAD:90,RPAD:90};
 var platform = 'xbox';
 // This game follows the default profile's controls instead of carrying its
 // own. Only ever true for a game — the default has nothing to follow.
@@ -651,11 +745,27 @@ function modeOptions(){
 var DIR_OPTIONS = [
   {id:'natural',  label:'Natural'},
   {id:'reversed', label:'Reversed'},
+  {id:'clockwise',        label:'Clockwise'},
+  {id:'counterclockwise', label:'Counter-Clockwise'},
 ];
 var DIAG_OPTIONS = [
   {id:'eight', label:'8-way (press two at once)'},
   {id:'four',  label:'4-way (one at a time)'},
 ];
+var GLIDE_OPTIONS = [
+  {id:'off', label:'Off'},
+  {id:'on',  label:'On'},
+];
+// Start speed and decay stops. The speed list includes 0 ("always coast"),
+// which the C++ side treats as a real value rather than "unset".
+var GLIDE_SPEED_STOPS = [0,25,50,75,100,150,200,300,400,500,650,800,1000];
+var GLIDE_DECAY_STOPS = [50,75,80,85,90,93,95,97,99,100];
+// Angular segments offered for circular scroll. The range and step are the
+// ones the C++ side accepts; keep in step with kScrollSegmentsMin/Max in
+// TrackpadConfig.h.
+var SEGMENT_MIN = 8;
+var SEGMENT_MAX = 48;
+var SEGMENT_STEP  = 4;
 var PLATFORM_OPTIONS = [
   {id:'xbox', label:'Xbox Controller'},
   {id:'ps',   label:'PlayStation Controller'},
@@ -724,7 +834,7 @@ var runningOpen = false;
 // Each profile is a flat object: one entry per bindable row id, plus
 // "<pad>mode" for each trackpad's movement mode. Flat because the JSON
 // reader on the C++ side matches "key":"value" pairs without nesting.
-var PROFILES = {'':{platform:'xbox',L4:'leftMouse',L5:'none',R4:'leftMouse',R5:'none',LPAD:'none',RPAD:'leftMouse',LPADmode:'scroll',RPADmode:'pointer',LPADdir:'natural',RPADdir:'natural',LPADspeed:'100',RPADspeed:'100',LPADdiag:'eight',RPADdiag:'eight',LPADtouch:'none',RPADtouch:'none',LPADup:'Up',LPADdown:'Down',LPADleft:'Left',LPADright:'Right',RPADup:'Up',RPADdown:'Down',RPADleft:'Left',RPADright:'Right'}};
+var PROFILES = {'':{platform:'xbox',L4:'leftMouse',L5:'none',R4:'leftMouse',R5:'none',LPAD:'none',RPAD:'leftMouse',LPADmode:'scroll',RPADmode:'pointer',LPADdir:'natural',RPADdir:'natural',LPADspeed:'100',RPADspeed:'100',LPADsegments:'24',RPADsegments:'24',LPADglide:'off',RPADglide:'off',LPADglidespeed:'500',RPADglidespeed:'500',LPADglidedecay:'90',RPADglidedecay:'90',LPADdiag:'eight',RPADdiag:'eight',LPADtouch:'none',RPADtouch:'none',LPADup:'Up',LPADdown:'Down',LPADleft:'Left',LPADright:'Right',RPADup:'Up',RPADdown:'Down',RPADleft:'Left',RPADright:'Right'}};
 var currentGame = '';
 var comboOpen = false;
 var comboQuery = '';
@@ -921,6 +1031,61 @@ function setMode(padId,modeId){
 }
 function setDir(padId,dirId){
   dirs[padId]=dirId;
+  // Show or hide the segments row as the direction changes.
+  renderPadRows();
+}
+// Clamp to the range the C++ side accepts. A missing or zero value lands on
+// the default; the minimum is 8, so zero cannot mean a real choice.
+function clampSegments(padId,value){
+  var v=parseInt(value,10);
+  if(isNaN(v)||v===0) return DEFAULT_SEGMENTS[padId];
+  if(v<SEGMENT_MIN) return SEGMENT_MIN;
+  if(v>SEGMENT_MAX) return SEGMENT_MAX;
+  return v;
+}
+function segmentsLabel(value){ return String(value); }
+function setSegments(padId,value){
+  segments[padId]=clampSegments(padId,value);
+  var out=document.getElementById('segments-val-'+padId);
+  if(out) out.textContent=segmentsLabel(segments[padId]);
+}
+function setGlide(padId,glideId){
+  glides[padId]=glideId;
+  // The tuning rows follow the On state.
+  renderPadRows();
+}
+// Snap to the nearest stop, the same way clampSpeed does, so the slider
+// position and the readout always describe the same number. A missing key is
+// NaN and lands on the default; 0 is a real start speed and is kept.
+function clampGlideSpeed(padId,value){
+  var v=parseInt(value,10);
+  if(isNaN(v)) return DEFAULT_GLIDE_SPEEDS[padId];
+  var best=GLIDE_SPEED_STOPS[0];
+  for(var i=0;i<GLIDE_SPEED_STOPS.length;i++){
+    if(Math.abs(GLIDE_SPEED_STOPS[i]-v)<Math.abs(best-v)) best=GLIDE_SPEED_STOPS[i];
+  }
+  return best;
+}
+function clampGlideDecay(padId,value){
+  var v=parseInt(value,10);
+  if(isNaN(v)||v===0) return DEFAULT_GLIDE_DECAYS[padId];
+  var best=GLIDE_DECAY_STOPS[0];
+  for(var i=0;i<GLIDE_DECAY_STOPS.length;i++){
+    if(Math.abs(GLIDE_DECAY_STOPS[i]-v)<Math.abs(best-v)) best=GLIDE_DECAY_STOPS[i];
+  }
+  return best;
+}
+function glideSpeedLabel(value){ return String(value)+'px/s'; }
+function glideDecayLabel(value){ return String(value)+'%'; }
+function setGlideSpeed(padId,value){
+  glideSpeeds[padId]=clampGlideSpeed(padId,value);
+  var out=document.getElementById('glide-speed-val-'+padId);
+  if(out) out.textContent=glideSpeedLabel(glideSpeeds[padId]);
+}
+function setGlideDecay(padId,value){
+  glideDecays[padId]=clampGlideDecay(padId,value);
+  var out=document.getElementById('glide-decay-val-'+padId);
+  if(out) out.textContent=glideDecayLabel(glideDecays[padId]);
 }
 // The one place a scroll speed is bounded, so a value arriving from storage
 // and one arriving from the slider cannot disagree. Anything unparseable or
@@ -961,12 +1126,17 @@ function resetDefaults(){
   platform=DEFAULT_PLATFORM;
   bindings={};
   ROWS.forEach(function(r){bindings[r.id]=DEFAULTS[r.id];});
-  modes={}; dirs={}; diags={}; speeds={};
+  modes={}; dirs={}; diags={}; speeds={}; glides={};
+  glideSpeeds={}; glideDecays={}; segments={};
   PADS.forEach(function(p){
     modes[p]=DEFAULT_MODES[p];
     dirs[p]=DEFAULT_DIRS[p];
     diags[p]=DEFAULT_DIAGS[p];
     speeds[p]=DEFAULT_SPEEDS[p];
+    glides[p]=DEFAULT_GLIDES[p];
+    glideSpeeds[p]=DEFAULT_GLIDE_SPEEDS[p];
+    glideDecays[p]=DEFAULT_GLIDE_DECAYS[p];
+    segments[p]=DEFAULT_SEGMENTS[p];
   });
   triggerReset();
   rumbleReset();
@@ -993,6 +1163,10 @@ function currentProfile(){
     p[x+'dir']=dirs[x];
     p[x+'diag']=diags[x];
     p[x+'speed']=String(speeds[x]);
+    p[x+'segments']=String(segments[x]);
+    p[x+'glide']=glides[x];
+    p[x+'glidespeed']=String(glideSpeeds[x]);
+    p[x+'glidedecay']=String(glideDecays[x]);
   });
   triggerToProfile(p);
   rumbleToProfile(p);
@@ -1017,7 +1191,8 @@ function loadProfileInto(p){
   ROWS.forEach(function(r){
     bindings[r.id]=p.hasOwnProperty(r.id)?p[r.id]:DEFAULTS[r.id];
   });
-  modes={}; dirs={}; diags={}; speeds={};
+  modes={}; dirs={}; diags={}; speeds={}; glides={};
+  glideSpeeds={}; glideDecays={}; segments={};
   PADS.forEach(function(x){
     modes[x]=p.hasOwnProperty(x+'mode')?p[x+'mode']:DEFAULT_MODES[x];
     dirs[x] =p.hasOwnProperty(x+'dir') ?p[x+'dir'] :DEFAULT_DIRS[x];
@@ -1025,6 +1200,10 @@ function loadProfileInto(p){
     // clampSpeed turns a missing key into the default, so this needs no
     // hasOwnProperty guard of its own.
     speeds[x]=clampSpeed(x,p[x+'speed']);
+    segments[x]=clampSegments(x,p[x+'segments']);
+    glides[x]=p.hasOwnProperty(x+'glide')?p[x+'glide']:DEFAULT_GLIDES[x];
+    glideSpeeds[x]=clampGlideSpeed(x,p[x+'glidespeed']);
+    glideDecays[x]=clampGlideDecay(x,p[x+'glidedecay']);
   });
   triggerFromProfile(p);
   rumbleFromProfile(p);
@@ -1345,6 +1524,7 @@ function renderModeSelects(){
     fillSelect('mode-'+padId,opts,modes[padId]);
     fillSelect('dir-'+padId,DIR_OPTIONS,dirs[padId]);
     fillSelect('diag-'+padId,DIAG_OPTIONS,diags[padId]);
+    fillSelect('glide-'+padId,GLIDE_OPTIONS,glides[padId]);
     var speedSel=document.getElementById('speed-'+padId);
     if(speedSel){
       // The slider travels over stop INDEXES, which is what makes the spacing
@@ -1355,6 +1535,29 @@ function renderModeSelects(){
     // Goes through setSpeed so the readout beside the slider is written by the
     // one function that owns it, rather than by two that can drift apart.
     setSpeed(padId,speeds[padId]);
+    var segmentsSel=document.getElementById('segments-'+padId);
+    if(segmentsSel){
+      segmentsSel.min=SEGMENT_MIN; segmentsSel.max=SEGMENT_MAX;
+      segmentsSel.step=SEGMENT_STEP;
+      segmentsSel.value=clampSegments(padId,segments[padId]);
+    }
+    setSegments(padId,segments[padId]);
+    var glideSpeedSel=document.getElementById('glide-speed-'+padId);
+    if(glideSpeedSel){
+      glideSpeedSel.min=0; glideSpeedSel.max=GLIDE_SPEED_STOPS.length-1;
+      glideSpeedSel.step=1;
+      glideSpeedSel.value=
+        GLIDE_SPEED_STOPS.indexOf(clampGlideSpeed(padId,glideSpeeds[padId]));
+    }
+    setGlideSpeed(padId,glideSpeeds[padId]);
+    var glideDecaySel=document.getElementById('glide-decay-'+padId);
+    if(glideDecaySel){
+      glideDecaySel.min=0; glideDecaySel.max=GLIDE_DECAY_STOPS.length-1;
+      glideDecaySel.step=1;
+      glideDecaySel.value=
+        GLIDE_DECAY_STOPS.indexOf(clampGlideDecay(padId,glideDecays[padId]));
+    }
+    setGlideDecay(padId,glideDecays[padId]);
   });
   renderPadRows();
   renderTriggerSelects();
@@ -1371,6 +1574,20 @@ function renderPadRows(){
     var speedRow=document.getElementById('speed-row-'+padId);
     // Pointer speed shares the slider scroll already had (#129).
     if(speedRow) speedRow.style.display=(mode==='scroll'||mode==='pointer')?'':'none';
+    // The segments row follows the direction and only exists in scroll mode.
+    var circular=(dirs[padId]==='clockwise'||dirs[padId]==='counterclockwise');
+    var segmentsRow=document.getElementById('segments-row-'+padId);
+    if(segmentsRow) segmentsRow.style.display=
+      (mode==='scroll'&&circular)?'':'none';
+    var glideRow=document.getElementById('glide-row-'+padId);
+    // Glide applies to pointer mode only.
+    if(glideRow) glideRow.style.display=(mode==='pointer')?'':'none';
+    // Tuning sliders follow the On state.
+    var glideOn=(mode==='pointer'&&glides[padId]==='on');
+    var glideSpeedRow=document.getElementById('glide-speed-row-'+padId);
+    if(glideSpeedRow) glideSpeedRow.style.display=glideOn?'':'none';
+    var glideDecayRow=document.getElementById('glide-decay-row-'+padId);
+    if(glideDecayRow) glideDecayRow.style.display=glideOn?'':'none';
     var diagRow=document.getElementById('diag-row-'+padId);
     if(diagRow) diagRow.style.display=(mode==='dpad')?'':'none';
     // Only a directional pad splits its surface, so only it needs explaining.
@@ -1491,12 +1708,26 @@ PADS.forEach(function(padId){
   if(dirSel) dirSel.addEventListener('change',function(e){setDir(padId,e.target.value);});
   var diagSel=document.getElementById('diag-'+padId);
   if(diagSel) diagSel.addEventListener('change',function(e){setDiag(padId,e.target.value);});
+  var glideSel=document.getElementById('glide-'+padId);
+  if(glideSel) glideSel.addEventListener('change',function(e){setGlide(padId,e.target.value);});
   var speedSel=document.getElementById('speed-'+padId);
   // 'input' rather than 'change': the readout has to follow the thumb while it
   // is being dragged, not only when it is let go.
   // The slider's value is a stop index; setSpeed wants the percentage.
   if(speedSel) speedSel.addEventListener('input',function(e){
     setSpeed(padId,SPEED_STOPS[parseInt(e.target.value,10)]);
+  });
+  var segmentsSel=document.getElementById('segments-'+padId);
+  if(segmentsSel) segmentsSel.addEventListener('input',function(e){
+    setSegments(padId,parseInt(e.target.value,10));
+  });
+  var glideSpeedSel=document.getElementById('glide-speed-'+padId);
+  if(glideSpeedSel) glideSpeedSel.addEventListener('input',function(e){
+    setGlideSpeed(padId,GLIDE_SPEED_STOPS[parseInt(e.target.value,10)]);
+  });
+  var glideDecaySel=document.getElementById('glide-decay-'+padId);
+  if(glideDecaySel) glideDecaySel.addEventListener('input',function(e){
+    setGlideDecay(padId,GLIDE_DECAY_STOPS[parseInt(e.target.value,10)]);
   });
 });
 
@@ -2919,6 +3150,22 @@ void RemapWindow::OnWebMessage(const std::wstring& raw) {
             // "unset" the registry uses and lands on the default.
             s.scrollSpeed = ScrollSpeedFromDword(static_cast<uint32_t>(
                 std::strtoul(JsonStr(msg, id + "speed").c_str(), nullptr, 10)));
+            // Circular-scroll segments. Same "unset is zero" rule as the speed.
+            s.scrollSegments = ScrollSegmentsFromDword(static_cast<uint32_t>(
+                std::strtoul(JsonStr(msg, id + "segments").c_str(), nullptr, 10)));
+            // Absent from pages/profiles written before the glide row existed,
+            // and anything but the explicit "on" is off — the opt-in default.
+            s.glide     = JsonStr(msg, id + "glide") == "on";
+            // Glide tuning. An absent key means the default; an explicit "0"
+            // start speed is a real choice ("always coast") and must survive.
+            const std::string gs = JsonStr(msg, id + "glidespeed");
+            s.glideSpeed = gs.empty() ? kGlideSpeedDefault
+                                      : GlideSpeedFromDword(static_cast<uint32_t>(
+                                            std::strtoul(gs.c_str(), nullptr, 10)));
+            const std::string gd = JsonStr(msg, id + "glidedecay");
+            s.glideDecay = gd.empty() ? kGlideDecayDefault
+                                      : GlideDecayFromDword(static_cast<uint32_t>(
+                                            std::strtoul(gd.c_str(), nullptr, 10)));
             s.diagonals = DiagonalModeFromId(JsonStr(msg, id + "diag"));
             s.touch     = BackButtonBinding::FromId(JsonStr(msg, id + "touch"));
             s.up        = BackButtonBinding::FromId(JsonStr(msg, id + "up"));
@@ -3074,6 +3321,10 @@ std::wstring RemapWindow::ProfileJson(const ControllerProfile& p) {
                L"\"" + k + L"mode\":\"" + narrow(TrackpadModeId(s.mode)) + L"\","
                L"\"" + k + L"dir\":\"" + narrow(ScrollDirectionId(s.scrollDir)) + L"\","
                L"\"" + k + L"speed\":\"" + std::to_wstring(s.scrollSpeed) + L"\","
+               L"\"" + k + L"segments\":\"" + std::to_wstring(s.scrollSegments) + L"\","
+               L"\"" + k + L"glide\":\"" + (s.glide ? L"on" : L"off") + L"\","
+               L"\"" + k + L"glidespeed\":\"" + std::to_wstring(s.glideSpeed) + L"\","
+               L"\"" + k + L"glidedecay\":\"" + std::to_wstring(s.glideDecay) + L"\","
                L"\"" + k + L"diag\":\"" + narrow(DiagonalModeId(s.diagonals)) + L"\","
                L"\"" + k + L"touch\":\"" + wid(s.touch) + L"\","
                L"\"" + k + L"up\":\"" + wid(s.up) + L"\","

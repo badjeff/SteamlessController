@@ -53,6 +53,19 @@ void ReadPad(HKEY key, const wchar_t* prefix, TrackpadSettings& pad) {
     pad.scrollDir = ScrollDirectionFromDword(ReadDw(key, name(L"ScrollDir").c_str(), 0));
     // Zero means absent, which ScrollSpeedFromDword reads as the default.
     pad.scrollSpeed = ScrollSpeedFromDword(ReadDw(key, name(L"ScrollSpeed").c_str(), 0));
+    // Circular-scroll segments. Zero is absent (the minimum is 8), so it maps
+    // to the default.
+    pad.scrollSegments =
+        ScrollSegmentsFromDword(ReadDw(key, name(L"ScrollSegments").c_str(), 0));
+    // Absent from every profile written before inertial glide existed, which
+    // reads back as off — the opt-in default.
+    pad.glide = ReadDw(key, name(L"Glide").c_str(), 0) != 0;
+    // Glide tuning. Zero is a real start speed ("coast on every release"), so
+    // absence uses a sentinel; the decay reads zero as absent.
+    pad.glideSpeed = GlideSpeedFromDword(
+        ReadDw(key, name(L"GlideSpeed").c_str(), kGlideSpeedUnset));
+    pad.glideDecay = GlideDecayFromDword(
+        ReadDw(key, name(L"GlideDecay").c_str(), 0));
     // Absent from every profile written before the directional modes existed.
     // The defaults match TrackpadSettings' own, so those profiles read back as
     // an unconfigured directional pad rather than a broken one.
@@ -71,6 +84,10 @@ void WritePad(HKEY key, const wchar_t* prefix, const TrackpadSettings& pad) {
     WriteDw(key, name(L"Click").c_str(),     pad.click.Pack());
     WriteDw(key, name(L"ScrollDir").c_str(), static_cast<DWORD>(pad.scrollDir));
     WriteDw(key, name(L"ScrollSpeed").c_str(), pad.scrollSpeed);
+    WriteDw(key, name(L"ScrollSegments").c_str(), pad.scrollSegments);
+    WriteDw(key, name(L"Glide").c_str(),       pad.glide ? 1 : 0);
+    WriteDw(key, name(L"GlideSpeed").c_str(),  pad.glideSpeed);
+    WriteDw(key, name(L"GlideDecay").c_str(),  pad.glideDecay);
     WriteDw(key, name(L"Touch").c_str(),     pad.touch.Pack());
     WriteDw(key, name(L"Up").c_str(),        pad.up.Pack());
     WriteDw(key, name(L"Down").c_str(),      pad.down.Pack());

@@ -60,14 +60,37 @@ inline TrackpadMode TrackpadModeFromDword(uint32_t v) {
 // Which way the content moves when a finger drags across a pad in scroll
 // mode. Natural is the touchscreen convention — the content follows the
 // finger — and is the default.
-enum class ScrollDirection : uint8_t { Natural = 0, Reversed = 1, COUNT };
+//
+// Clockwise and CounterClockwise switch the pad from swipe scrolling to
+// circular scrolling: the finger's angle around the pad centre is measured
+// and each angular segment crossed emits a wheel tick.
+enum class ScrollDirection : uint8_t {
+    Natural = 0,
+    Reversed = 1,
+    Clockwise = 2,
+    CounterClockwise = 3,
+    COUNT
+};
+
+inline bool IsCircularScroll(ScrollDirection d) {
+    return d == ScrollDirection::Clockwise
+        || d == ScrollDirection::CounterClockwise;
+}
 
 inline const char* ScrollDirectionId(ScrollDirection d) {
-    return d == ScrollDirection::Reversed ? "reversed" : "natural";
+    switch (d) {
+    case ScrollDirection::Reversed:         return "reversed";
+    case ScrollDirection::Clockwise:        return "clockwise";
+    case ScrollDirection::CounterClockwise: return "counterclockwise";
+    default:                                return "natural";
+    }
 }
 
 inline ScrollDirection ScrollDirectionFromId(const std::string& id) {
-    return id == "reversed" ? ScrollDirection::Reversed : ScrollDirection::Natural;
+    if (id == "reversed")         return ScrollDirection::Reversed;
+    if (id == "clockwise")        return ScrollDirection::Clockwise;
+    if (id == "counterclockwise") return ScrollDirection::CounterClockwise;
+    return ScrollDirection::Natural;
 }
 
 inline ScrollDirection ScrollDirectionFromDword(uint32_t v) {
@@ -111,6 +134,63 @@ inline constexpr uint32_t ClampScrollSpeed(uint32_t v) {
 
 inline uint32_t ScrollSpeedFromDword(uint32_t v) {
     return v == 0 ? kScrollSpeedDefault : ClampScrollSpeed(v);
+}
+
+// Circular scroll, ScrollWheel mode with a Clockwise/CounterClockwise
+// direction. The pad's whole surface is the wheel: the thumb's angle around
+// the centre is divided into this many segments, and crossing one emits a
+// wheel tick. The settings window offers 8 to 48 in steps of 4; 24 is the
+// default.
+inline constexpr uint32_t kScrollSegmentsDefault = 24;
+inline constexpr uint32_t kScrollSegmentsMin     = 8;
+inline constexpr uint32_t kScrollSegmentsMax     = 48;
+
+inline uint32_t ClampScrollSegments(uint32_t v) {
+    if (v < kScrollSegmentsMin) return kScrollSegmentsMin;
+    if (v > kScrollSegmentsMax) return kScrollSegmentsMax;
+    return v;
+}
+
+inline uint32_t ScrollSegmentsFromDword(uint32_t v) {
+    return v == 0 ? kScrollSegmentsDefault : ClampScrollSegments(v);
+}
+
+// Inertial glide tuning, MousePointer only, per pad.
+//
+// GlideSpeed is the minimum release speed, in screen pixels per second, that
+// coasts. 0 means "coast on every release that moved". It is stored as a
+// DWORD, and unlike the speeds above zero is a real choice, so an absent value
+// has to be told apart from a stored zero: GlideSpeedFromDword reads the
+// sentinel, not 0, as "unset".
+inline constexpr uint32_t kGlideSpeedDefault = 500;
+inline constexpr uint32_t kGlideSpeedMax     = 1000;
+inline constexpr uint32_t kGlideSpeedUnset   = 0xFFFFFFFFu;
+
+inline uint32_t ClampGlideSpeed(uint32_t v) {
+    return v > kGlideSpeedMax ? kGlideSpeedMax : v;
+}
+
+inline uint32_t GlideSpeedFromDword(uint32_t v) {
+    return v == kGlideSpeedUnset ? kGlideSpeedDefault : ClampGlideSpeed(v);
+}
+
+// Percentage of the glide's speed kept per 16 ms reference tick. 100 keeps
+// speed forever, which the glide's duration cap then ends. The reference tick
+// is fixed rather than derived from the report interval, so a wired 250 Hz pad
+// and a wireless 60 Hz one coast the same distance for the same setting. The
+// default is 90%.
+inline constexpr uint32_t kGlideDecayDefault = 90;
+inline constexpr uint32_t kGlideDecayMin     = 50;
+inline constexpr uint32_t kGlideDecayMax     = 100;
+
+inline uint32_t ClampGlideDecay(uint32_t v) {
+    if (v < kGlideDecayMin) return kGlideDecayMin;
+    if (v > kGlideDecayMax) return kGlideDecayMax;
+    return v;
+}
+
+inline uint32_t GlideDecayFromDword(uint32_t v) {
+    return v == 0 ? kGlideDecayDefault : ClampGlideDecay(v);
 }
 
 // Whether a directional pad's diagonals press two directions at once (what a
@@ -254,6 +334,18 @@ struct TrackpadSettings {
     ScrollDirection   scrollDir = ScrollDirection::Natural;
     // ScrollWheel and MousePointer, as a percentage — see kScrollSpeedDefault.
     uint32_t          scrollSpeed = kScrollSpeedDefault;
+    // ScrollWheel with a circular direction only: how many angular segments
+    // one revolution is divided into — see kScrollSegmentsDefault.
+    uint32_t          scrollSegments = kScrollSegmentsDefault;
+    // MousePointer only, opt-in. Driven from the pad's own velocity at the
+    // moment of the lift; see TrackpadInput. Off is the default, which is also
+    // what profiles written before this setting existed read back as.
+    bool              glide     = false;
+    // MousePointer + glide only. Release speed that starts a coast, px/s
+    // (0 = coast on every moving release), and the percentage of speed kept
+    // per 16 ms tick — see kGlideSpeedDefault and kGlideDecayDefault.
+    uint32_t          glideSpeed = kGlideSpeedDefault;
+    uint32_t          glideDecay = kGlideDecayDefault;
     BackButtonBinding click     = BackButtonBinding::FromAction(BackButtonAction::None);
     // Fires while a finger rests on the pad, whatever the pad's mode is doing
     // with movement. Deliberately not zoned like the click: touch and click
@@ -272,7 +364,9 @@ struct TrackpadSettings {
 
     bool operator==(const TrackpadSettings& o) const {
         return mode == o.mode && scrollDir == o.scrollDir && click == o.click
-            && scrollSpeed == o.scrollSpeed
+            && scrollSpeed == o.scrollSpeed && scrollSegments == o.scrollSegments
+            && glide == o.glide
+            && glideSpeed == o.glideSpeed && glideDecay == o.glideDecay
             && touch == o.touch && up == o.up && down == o.down
             && left == o.left && right == o.right && diagonals == o.diagonals;
     }

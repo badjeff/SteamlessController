@@ -637,8 +637,13 @@ std::vector<std::wstring> ControllerManager::UnheldDockPaths() const {
 static std::string DescribePad(const TrackpadSettings& pad) {
     switch (pad.mode) {
     case TrackpadMode::MousePointer: {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "pointer (speed %u%%)", pad.scrollSpeed);
+        char buf[128];
+        if (pad.glide)
+            snprintf(buf, sizeof(buf),
+                     "pointer (speed %u%%, glide start %u px/s, decay %u%%/16ms)",
+                     pad.scrollSpeed, pad.glideSpeed, pad.glideDecay);
+        else
+            snprintf(buf, sizeof(buf), "pointer (speed %u%%)", pad.scrollSpeed);
         return buf;
     }
     case TrackpadMode::DS4Touchpad:   return "ds4 touchpad";
@@ -650,18 +655,29 @@ static std::string DescribePad(const TrackpadSettings& pad) {
         const float correction =
             InputInjection::WheelCorrection(InputInjection::WheelLinesPerNotch());
         const char* dir = pad.scrollDir == ScrollDirection::Reversed ? "reversed"
-                                                                    : "natural";
-        char buf[160];
-        // Nothing to explain on a machine left at the Windows default, where
-        // the correction is 1.0 and printing it only invites the question of
-        // what to multiply by.
-        if (std::fabs(correction - 1.0f) < 0.005f)
+                        : pad.scrollDir == ScrollDirection::Clockwise ? "clockwise"
+                        : pad.scrollDir == ScrollDirection::CounterClockwise
+                              ? "counter-clockwise" : "natural";
+        char buf[192];
+        if (IsCircularScroll(pad.scrollDir)) {
+            if (std::fabs(correction - 1.0f) < 0.005f)
+                snprintf(buf, sizeof(buf),
+                         "circular scroll (%s, %u segments, speed %u%%)",
+                         dir, pad.scrollSegments, pad.scrollSpeed);
+            else
+                snprintf(buf, sizeof(buf),
+                         "circular scroll (%s, %u segments, speed %u%%, "
+                         "wheel correction x%.2f)",
+                         dir, pad.scrollSegments, pad.scrollSpeed,
+                         static_cast<double>(correction));
+        } else if (std::fabs(correction - 1.0f) < 0.005f) {
             snprintf(buf, sizeof(buf), "scroll (%s, speed %u%% of calibrated)",
                      dir, pad.scrollSpeed);
-        else
+        } else {
             snprintf(buf, sizeof(buf),
                      "scroll (%s, speed %u%% of calibrated, wheel correction x%.2f)",
                      dir, pad.scrollSpeed, static_cast<double>(correction));
+        }
         return buf;
     }
     default: return "none";
@@ -726,6 +742,14 @@ void ControllerManager::ApplyPadSettings(Slot& slot) {
     slot.rightPad.SetScrollDirection(m_profile.rightPad.scrollDir);
     slot.leftPad.SetScrollSpeed(m_profile.leftPad.scrollSpeed);
     slot.rightPad.SetScrollSpeed(m_profile.rightPad.scrollSpeed);
+    slot.leftPad.SetScrollSegments(m_profile.leftPad.scrollSegments);
+    slot.rightPad.SetScrollSegments(m_profile.rightPad.scrollSegments);
+    slot.leftPad.SetGlide(m_profile.leftPad.glide);
+    slot.rightPad.SetGlide(m_profile.rightPad.glide);
+    slot.leftPad.SetGlideSpeed(m_profile.leftPad.glideSpeed);
+    slot.rightPad.SetGlideSpeed(m_profile.rightPad.glideSpeed);
+    slot.leftPad.SetGlideDecay(m_profile.leftPad.glideDecay);
+    slot.rightPad.SetGlideDecay(m_profile.rightPad.glideDecay);
     slot.leftPad.SetDiagonals(m_profile.leftPad.diagonals);
     slot.rightPad.SetDiagonals(m_profile.rightPad.diagonals);
     // The virtual controller reads pad modes straight off the profile it is
